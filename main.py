@@ -1,65 +1,75 @@
-import streamlit as st
-import pandas as pd
-from database import get_google_sheet
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from database import save_order_to_sheet, get_google_sheet
+from datetime import datetime
 
-# Настройка страницы
-st.set_page_config(page_title="Velmora CRM — Главная", page_icon="📦", layout="wide")
+app = FastAPI()
 
-st.title("📦 Velmora CRM | Главная")
-st.markdown("Управление заказами и актуальная база данных в реальном времени")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Функция загрузки реальных данных из Google Таблицы
-@st.cache_data(ttl=10) # обновление каждые 10 секунд
-def load_real_data():
+class Order(BaseModel):
+    name: str
+    phone: str
+    pet: str
+    city: str
+    warehouse: str
+    product: str
+
+# ГЛАВНАЯ СТРАНИЦА (CRM Интерфейс)
+@app.get("/", response_class=HTMLResponse)
+def read_root():
     try:
         sheet = get_google_sheet()
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
+        rows = sheet.get_all_values() # Получаем все строки из таблицы
     except Exception as e:
-        st.error(f"Ошибка подключения к таблице: {e}")
-        return pd.DataFrame()
+        rows = [["Ошибка загрузки данных", str(e)]]
 
-df = load_real_data()
+    # Строим простую и красивую HTML-таблицу для главной страницы
+    table_html = "<table border='1' style='border-collapse: collapse; width: 100%; font-family: sans-serif; padding: 8px;'>"
+    for i, row in enumerate(rows):
+        tag = "th" if i == 0 else "td"
+        table_html += "<tr>"
+        for cell in row:
+            table_html += f"<{tag} style='padding: 10px; text-align: left;'>{cell}</{tag}>"
+        table_html += "</tr>"
+    table_html += "</table>"
 
-if not df.empty:
-    # --- БЛОК С ЦИФРАМИ (МЕТРИКИ) ---
-    col1, col2, col3, col4 = st.columns(4)
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="uk">
+    <head>
+        <meta charset="UTF-8">
+        <title>Velmora CRM | Головна</title>
+        <meta http-equiv="refresh" content="30"> <!-- Автообновление каждые 30 сек -->
+    </head>
+    <body style="font-family: sans-serif; background: #FAF8F5; color: #4A4039; padding: 20px;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <h1>📦 Velmora CRM | Головна сторінка замовлень</h1>
+            <p>Дані оновлюються автоматично з Google Таблиці.</p>
+            <hr style="margin: 20px 0;">
+            <div style="overflow-x: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+                {table_html}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
-    with col1:
-        st.metric(label="📥 Всего заказов", value=len(df))
-
-    with col2:
-        # Проверяем, есть ли колонка со статусом
-        if "Статус" in df.columns:
-            new_orders = len(df[df["Статус"] == "Новий"])
-            st.metric(label="🔥 Новые заявки", value=new_orders)
-        else:
-            st.metric(label="🔥 Новые заявки", value=0)
-
-    with col3:
-        if "Статус" in df.columns:
-            sent_orders = len(df[df["Статус"] == "Відправлено"])
-            st.metric(label="🚚 Отправлено", value=sent_orders)
-        else:
-            st.metric(label="🚚 Отправлено", value=0)
-
-    with col4:
-        if "Статус" in df.columns:
-            done_orders = len(df[df["Статус"] == "Виконано"])
-            st.metric(label="💰 Выполнено", value=done_orders)
-        else:
-            st.metric(label="💰 Выполнено", value=0)
-
-    st.markdown("---")
-
-    # --- ТАБЛИЦА ЗАКАЗОВ ---
-    st.subheader("📋 Список заказов")
+@app.post("/add-order")
+def add_order(order: Order):
+    order_data = order.dict()
+    order_data["date"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+    order_data["status"] = "Новий"
     
-    # Кнопка обновления данных
-    if st.button("🔄 Обновить данные"):
-        st.cache_data.clear()
-        st.rerun()
-
-    st.dataframe(df, use_container_width=True)
-else:
-    st.warning("Таблица пока пуста или данные загружаются...")
+    save_order_to_sheet(order_data)
+    
+    return {"status": "success", "message": "Замовлення прийнято"}
