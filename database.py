@@ -9,18 +9,14 @@ def get_google_sheet():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    
-    # Берем ключ из защищенной переменной окружения Render
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     creds_dict = json.loads(creds_json)
-    
     credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(credentials)
     return client.open(SPREADSHEET_NAME).worksheet("Замовлення")
 
 def save_order_to_sheet(order_data: dict):
     sheet = get_google_sheet()
-    
     row = [
         order_data.get("date", ""),
         order_data.get("name", ""),
@@ -29,7 +25,13 @@ def save_order_to_sheet(order_data: dict):
         order_data.get("city", ""),
         order_data.get("warehouse", ""),
         order_data.get("product", ""),
-        order_data.get("status", "Новий")
+        order_data.get("status", "Новий"),
+        "" # Пустая колонка для ТТН при новом заказе
     ]
-    
     sheet.append_row(row)
+
+def update_order_in_sheet(row_number: int, status: str, ttn: str):
+    sheet = get_google_sheet()
+    # Статус у нас в 8-й колонке (H), ТТН будет в 9-й (I)
+    sheet.update_cell(row_number, 8, status)
+    sheet.update_cell(row_number, 9, ttn)
