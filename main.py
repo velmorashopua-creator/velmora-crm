@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from database import save_order_to_sheet, get_google_sheet, update_order_in_sheet
+from database import save_order_to_sheet, get_google_sheet, update_order_in_sheet, add_prichid, add_vydatky
 from datetime import datetime
 
 app = FastAPI()
@@ -15,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- МОДЕЛІ ДАНИХ ---
 class Order(BaseModel):
     name: str
     phone: str
@@ -28,6 +29,20 @@ class OrderUpdate(BaseModel):
     status: str
     ttn: str
 
+class PrichidData(BaseModel):
+    article: str
+    name: str
+    qty: int
+    total_sum: float
+    supplier: str
+
+class VydatkyData(BaseModel):
+    category: str
+    sum: float
+    comment: str
+    order_id: str
+
+# --- ВІЗУАЛ (МЕНЮ ТА ШАБЛОН) ---
 def get_sidebar_html(active_tab="home"):
     tabs = [
         ("home", "📦 Головна", "/"),
@@ -81,6 +96,13 @@ def base_layout(title, content, active_tab, extra_scripts=""):
             td {{ padding: 12px 15px; border-bottom: 1px solid #EFECE6; font-size: 0.95rem; }}
             .action-btn {{ background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }}
             .action-btn:hover {{ background: #D9CEBF; }}
+            
+            /* Стилі для форм */
+            .form-group {{ margin-bottom: 15px; }}
+            .form-group label {{ display: block; margin-bottom: 5px; font-size: 0.9rem; color: #8C7B70; }}
+            .form-control {{ width: 100%; padding: 10px; border: 1px solid #D9CEBF; border-radius: 6px; background: #FAF8F5; font-size: 1rem; color: #4A4039; }}
+            .btn-submit {{ background: #8C7262; color: #FFF; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; }}
+            .btn-submit:hover {{ background: #6E574B; }}
         </style>
     </head>
     <body>
@@ -94,6 +116,8 @@ def base_layout(title, content, active_tab, extra_scripts=""):
     </body>
     </html>
     """
+
+# --- СТОРІНКИ ---
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
@@ -115,22 +139,10 @@ def read_root():
 def get_clients_page():
     return base_layout("Клієнти", "<h1>👥 База клієнтів</h1><div class='card'>В розробці</div>", "clients")
 
-@app.get("/accounting", response_class=HTMLResponse)
-def get_accounting_page():
-    return base_layout("Облік", "<h1>💰 Облік</h1><div class='card'>В розробці</div>", "accounting")
-
-@app.get("/novaposhta", response_class=HTMLResponse)
-def get_novaposhta_page():
-    return base_layout("Нова Пошта", "<h1>🚚 Нова Пошта</h1><div class='card'>В розробці</div>", "novaposhta")
-
-@app.get("/messages", response_class=HTMLResponse)
-def get_messages_page():
-    return base_layout("Повідомлення", "<h1>💬 Повідомлення</h1><div class='card'>В розробці</div>", "messages")
-
 @app.get("/orders", response_class=HTMLResponse)
 def get_orders_page():
     try:
-        sheet = get_google_sheet()
+        sheet = get_google_sheet("Замовлення")
         rows = sheet.get_all_values()[1:]
     except:
         rows = []
@@ -209,6 +221,155 @@ def get_orders_page():
     """
     return base_layout("Замовлення", content, "orders", extra_scripts=scripts)
 
+@app.get("/accounting", response_class=HTMLResponse)
+def get_accounting_page():
+    content = """
+    <h1>💰 Облік та Фінанси</h1>
+    <p style="color: #8C7B70; margin-bottom: 20px;">Внесення приходу на склад та операційних витрат</p>
+    
+    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+        <!-- Форма ПРИХІД -->
+        <div class="card" style="flex: 1; min-width: 300px; margin-top: 0;">
+            <h3 style="margin-bottom: 20px; color: #5C4033;">📥 Оприбуткувати товар (Прихід)</h3>
+            <form id="form-prichid">
+                <div class="form-group">
+                    <label>Артикул</label>
+                    <input type="text" id="p_article" class="form-control" required placeholder="Напр. BOX-01">
+                </div>
+                <div class="form-group">
+                    <label>Назва товару/матеріалу</label>
+                    <input type="text" id="p_name" class="form-control" required placeholder="Коробка подарункова">
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Кількість (шт)</label>
+                        <input type="number" id="p_qty" class="form-control" required>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Сума закупівлі (грн)</label>
+                        <input type="number" step="0.01" id="p_sum" class="form-control" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Постачальник</label>
+                    <input type="text" id="p_supplier" class="form-control" placeholder="ФОП Іванов / Пром">
+                </div>
+                <button type="submit" class="btn-submit">Внести на склад</button>
+            </form>
+        </div>
+
+        <!-- Форма ВИТРАТИ -->
+        <div class="card" style="flex: 1; min-width: 300px; margin-top: 0;">
+            <h3 style="margin-bottom: 20px; color: #5C4033;">💸 Інші витрати (Видатки)</h3>
+            <form id="form-vydatky">
+                <div class="form-group">
+                    <label>Категорія витрат</label>
+                    <select id="v_category" class="form-control" required>
+                        <option value="Логістика (НП)">Логістика (Нова Пошта)</option>
+                        <option value="Реклама (FB/Insta)">Реклама (FB/Insta)</option>
+                        <option value="Пакування">Пакування (скотч, плівка)</option>
+                        <option value="Оренда / Сервіси">Оренда / Сервіси (Домен, Render)</option>
+                        <option value="Інше">Інше</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Сума (грн)</label>
+                    <input type="number" step="0.01" id="v_sum" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Коментар / Призначення</label>
+                    <input type="text" id="v_comment" class="form-control" placeholder="Оплата за доставку...">
+                </div>
+                <div class="form-group">
+                    <label>№ Замовлення (якщо стосується клієнта)</label>
+                    <input type="text" id="v_order_id" class="form-control" placeholder="Необов'язково">
+                </div>
+                <button type="submit" class="btn-submit" style="background: #A35D5D;">Зафіксувати витрату</button>
+            </form>
+        </div>
+    </div>
+    """
+
+    scripts = """
+    <script>
+        // Обробка форми Приходу
+        document.getElementById('form-prichid').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.innerText = 'Завантаження...';
+            
+            const data = {
+                article: document.getElementById('p_article').value,
+                name: document.getElementById('p_name').value,
+                qty: parseInt(document.getElementById('p_qty').value),
+                total_sum: parseFloat(document.getElementById('p_sum').value),
+                supplier: document.getElementById('p_supplier').value
+            };
+
+            try {
+                const response = await fetch('/add-prichid', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                if(response.ok) {
+                    alert('Товар успішно внесено на склад!');
+                    e.target.reset();
+                } else {
+                    alert('Помилка збереження.');
+                }
+            } catch (err) {
+                alert('Помилка з\'єднання.');
+            } finally {
+                btn.innerText = 'Внести на склад';
+            }
+        });
+
+        // Обробка форми Видатків
+        document.getElementById('form-vydatky').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.innerText = 'Завантаження...';
+            
+            const data = {
+                category: document.getElementById('v_category').value,
+                sum: parseFloat(document.getElementById('v_sum').value),
+                comment: document.getElementById('v_comment').value,
+                order_id: document.getElementById('v_order_id').value
+            };
+
+            try {
+                const response = await fetch('/add-vydatky', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                if(response.ok) {
+                    alert('Витрату успішно зафіксовано!');
+                    e.target.reset();
+                } else {
+                    alert('Помилка збереження.');
+                }
+            } catch (err) {
+                alert('Помилка з\'єднання.');
+            } finally {
+                btn.innerText = 'Зафіксувати витрату';
+            }
+        });
+    </script>
+    """
+    return base_layout("Облік", content, "accounting", extra_scripts=scripts)
+
+@app.get("/novaposhta", response_class=HTMLResponse)
+def get_novaposhta_page():
+    return base_layout("Нова Пошта", "<h1>🚚 Нова Пошта</h1><div class='card'>В розробці</div>", "novaposhta")
+
+@app.get("/messages", response_class=HTMLResponse)
+def get_messages_page():
+    return base_layout("Повідомлення", "<h1>💬 Повідомлення</h1><div class='card'>В розробці</div>", "messages")
+
+# --- АПІ РОУТИ ДЛЯ ЗАПИСУ ДАНИХ ---
+
 @app.post("/add-order")
 def add_order(order: Order):
     order_data = order.dict()
@@ -220,4 +381,32 @@ def add_order(order: Order):
 @app.post("/update-order")
 def update_order_route(data: OrderUpdate):
     update_order_in_sheet(data.row_id, data.status, data.ttn)
+    return {"status": "success"}
+
+@app.post("/add-prichid")
+def add_prichid_route(data: PrichidData):
+    # Рахуємо собівартість одиниці
+    unit_cost = round(data.total_sum / data.qty, 2) if data.qty > 0 else 0
+    row_data = {
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "article": data.article,
+        "name": data.name,
+        "qty": str(data.qty),
+        "total_sum": str(data.total_sum),
+        "supplier": data.supplier,
+        "unit_cost": str(unit_cost)
+    }
+    add_prichid(row_data)
+    return {"status": "success"}
+
+@app.post("/add-vydatky")
+def add_vydatky_route(data: VydatkyData):
+    row_data = {
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "category": data.category,
+        "sum": str(data.sum),
+        "comment": data.comment,
+        "order_id": data.order_id
+    }
+    add_vydatky(row_data)
     return {"status": "success"}
