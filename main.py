@@ -1,51 +1,41 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime
 from database import save_order_to_sheet
+from datetime import datetime
 
-app = FastAPI(title="Velmora CRM API")
+app = FastAPI()
 
-# Налаштовуємо CORS, щоб сайт міг відправляти запити на наш сервер
+# НАСТРОЙКИ CORS — это нужно, чтобы ваш сайт мог отправлять данные на сервер
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # На старті дозволяємо запити з усіх джерел
+    allow_origins=["*"],  # Разрешает запросы с любого сайта
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Разрешает все типы запросов (POST, GET и т.д.)
+    allow_headers=["*"],  # Разрешает все заголовки
 )
 
-# Схема даних замовлення від клієнта
-class OrderSchema(BaseModel):
+# Модель данных, которые приходят с сайта
+class Order(BaseModel):
     name: str
     phone: str
-    pet: str = ""
-    city: str = ""
-    warehouse: str = ""
-    product: str = ""
+    pet: str
+    city: str
+    warehouse: str
+    product: str
 
 @app.get("/")
-def home():
+def read_root():
     return {"status": "ok", "message": "Velmora CRM API runs smoothly!"}
 
-@app.post("/api/order")
-def create_order(order: OrderSchema):
-    try:
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        order_data = {
-            "date": current_time,
-            "name": order.name,
-            "phone": order.phone,
-            "pet": order.pet,
-            "city": order.city,
-            "warehouse": order.warehouse,
-            "product": order.product,
-            "status": "Новий"
-        }
-        
-        save_order_to_sheet(order_data)
-        return {"status": "success", "message": "Замовлення успішно збережено!"}
+@app.post("/add-order")
+def add_order(order: Order):
+    # Добавляем текущую дату
+    order_data = order.dict()
+    order_data["date"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+    order_data["status"] = "Новий"
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Сохраняем в таблицу
+    save_order_to_sheet(order_data)
+    
+    return {"status": "success", "message": "Замовлення прийнято"}
