@@ -29,8 +29,9 @@ def get_sidebar_html(active_tab="home"):
         ("home", "📦 Головна", "/"),
         ("clients", "👥 Клієнти", "/clients"),
         ("orders", "📋 Замовлення", "/orders"),
-        ("accounting", "💰 Улік", "/accounting"),
-        ("novaposhta", "🚚 Нова Пошта", "/novaposhta")
+        ("accounting", "💰 Облік", "/accounting"),
+        ("novaposhta", "🚚 Нова Пошта", "/novaposhta"),
+        ("messages", "💬 Повідомлення", "/messages")
     ]
     
     links_html = ""
@@ -73,7 +74,7 @@ def get_sidebar_html(active_tab="home"):
     </div>
     """
 
-# Двухколоночный макет: слева меню, справа контент
+# Двухколоночный макет
 def base_layout(title, content, active_tab):
     return f"""
     <!DOCTYPE html>
@@ -188,18 +189,18 @@ def get_orders_page():
     """
     return base_layout("Замовлення", content, "orders")
 
-# --- 4. УЛІК ---
+# --- 4. ОБЛІК ---
 @app.get("/accounting", response_class=HTMLResponse)
 def get_accounting_page():
     content = """
-    <h1>💰 Улік та Фінанси</h1>
+    <h1>💰 Облік та Фінанси</h1>
     <p style="color: #8C7B70; margin-bottom: 20px;">Контроль доходів, витрат та залишків товарів</p>
     <div class="card">
         <h3>📊 Розділ в розробці</h3>
         <p style="color: #8C7B70; margin-top: 10px;">Тут буде фінансова аналітика та підрахунок виручки.</p>
     </div>
     """
-    return base_layout("Улік", content, "accounting")
+    return base_layout("Облік", content, "accounting")
 
 # --- 5. НОВА ПОШТА ---
 @app.get("/novaposhta", response_class=HTMLResponse)
@@ -213,6 +214,19 @@ def get_novaposhta_page():
     </div>
     """
     return base_layout("Нова Пошта", content, "novaposhta")
+
+# --- 6. ПОВІДОМЛЕННЯ ---
+@app.get("/messages", response_class=HTMLResponse)
+def get_messages_page():
+    content = """
+    <h1>💬 Повідомлення</h1>
+    <p style="color: #8C7B70; margin-bottom: 20px;">Чат з клієнтами та системні сповіщення</p>
+    <div class="card">
+        <h3>📩 Розділ в розробці</h3>
+        <p style="color: #8C7B70; margin-top: 10px;">Тут буде історія повідомлень та розсилки.</p>
+    </div>
+    """
+    return base_layout("Повідомлення", content, "messages")
 
 @app.post("/add-order")
 def add_order(order: Order):
