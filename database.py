@@ -1,13 +1,20 @@
+import os
+import json
 import gspread
 from google.oauth2.service_account import Credentials
-from config import SPREADSHEET_NAME, CREDENTIALS_FILE
+from config import SPREADSHEET_NAME
 
 def get_google_sheet():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    credentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    
+    # Берем ключ из защищенной переменной окружения Render
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    creds_dict = json.loads(creds_json)
+    
+    credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(credentials)
     return client.open(SPREADSHEET_NAME).worksheet("Замовлення")
 
