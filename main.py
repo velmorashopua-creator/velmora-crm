@@ -1,41 +1,65 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from database import save_order_to_sheet
-from datetime import datetime
+import streamlit as st
+import pandas as pd
+from database import get_google_sheet
 
-app = FastAPI()
+# Настройка страницы
+st.set_page_config(page_title="Velmora CRM — Главная", page_icon="📦", layout="wide")
 
-# НАСТРОЙКИ CORS — это нужно, чтобы ваш сайт мог отправлять данные на сервер
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Разрешает запросы с любого сайта
-    allow_credentials=True,
-    allow_methods=["*"],  # Разрешает все типы запросов (POST, GET и т.д.)
-    allow_headers=["*"],  # Разрешает все заголовки
-)
+st.title("📦 Velmora CRM | Главная")
+st.markdown("Управление заказами и актуальная база данных в реальном времени")
 
-# Модель данных, которые приходят с сайта
-class Order(BaseModel):
-    name: str
-    phone: str
-    pet: str
-    city: str
-    warehouse: str
-    product: str
+# Функция загрузки реальных данных из Google Таблицы
+@st.cache_data(ttl=10) # обновление каждые 10 секунд
+def load_real_data():
+    try:
+        sheet = get_google_sheet()
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.error(f"Ошибка подключения к таблице: {e}")
+        return pd.DataFrame()
 
-@app.get("/")
-def read_root():
-    return {"status": "ok", "message": "Velmora CRM API runs smoothly!"}
+df = load_real_data()
 
-@app.post("/add-order")
-def add_order(order: Order):
-    # Добавляем текущую дату
-    order_data = order.dict()
-    order_data["date"] = datetime.now().strftime("%d.%m.%Y %H:%M")
-    order_data["status"] = "Новий"
+if not df.empty:
+    # --- БЛОК С ЦИФРАМИ (МЕТРИКИ) ---
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(label="📥 Всего заказов", value=len(df))
+
+    with col2:
+        # Проверяем, есть ли колонка со статусом
+        if "Статус" in df.columns:
+            new_orders = len(df[df["Статус"] == "Новий"])
+            st.metric(label="🔥 Новые заявки", value=new_orders)
+        else:
+            st.metric(label="🔥 Новые заявки", value=0)
+
+    with col3:
+        if "Статус" in df.columns:
+            sent_orders = len(df[df["Статус"] == "Відправлено"])
+            st.metric(label="🚚 Отправлено", value=sent_orders)
+        else:
+            st.metric(label="🚚 Отправлено", value=0)
+
+    with col4:
+        if "Статус" in df.columns:
+            done_orders = len(df[df["Статус"] == "Виконано"])
+            st.metric(label="💰 Выполнено", value=done_orders)
+        else:
+            st.metric(label="💰 Выполнено", value=0)
+
+    st.markdown("---")
+
+    # --- ТАБЛИЦА ЗАКАЗОВ ---
+    st.subheader("📋 Список заказов")
     
-    # Сохраняем в таблицу
-    save_order_to_sheet(order_data)
-    
-    return {"status": "success", "message": "Замовлення прийнято"}
+    # Кнопка обновления данных
+    if st.button("🔄 Обновить данные"):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.dataframe(df, use_container_width=True)
+else:
+    st.warning("Таблица пока пуста или данные загружаются...")
