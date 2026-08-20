@@ -23,8 +23,8 @@ class Order(BaseModel):
     warehouse: str
     product: str
 
-# Единая панель навигации по всем разделам CRM
-def get_nav_html(active_tab="home"):
+# Вертикальное меню (сайдбар)
+def get_sidebar_html(active_tab="home"):
     tabs = [
         ("home", "📦 Головна", "/"),
         ("clients", "👥 Клієнти", "/clients"),
@@ -35,16 +35,45 @@ def get_nav_html(active_tab="home"):
     
     links_html = ""
     for tab_id, label, url in tabs:
-        style = "padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: bold; border: 1px solid #D9CEBF; font-size: 0.9rem;"
-        if active_tab == tab_id:
-            style += " background: #8C7262; color: white;"
-        else:
-            style += " background: #FFF; color: #4A4039;"
-        links_html += f"<a href='{url}' style='{style}'>{label}</a>"
+        is_active = (active_tab == tab_id)
+        bg_color = "#8C7262" if is_active else "transparent"
+        text_color = "#FFF" if is_active else "#4A4039"
+        border_color = "#8C7262" if is_active else "transparent"
+        font_weight = "bold" if is_active else "600"
+        
+        links_html += f"""
+        <a href='{url}' style='
+            display: block;
+            padding: 12px 16px; 
+            border-radius: 8px; 
+            text-decoration: none; 
+            font-weight: {font_weight}; 
+            font-size: 0.95rem;
+            background: {bg_color}; 
+            color: {text_color}; 
+            border: 1px solid {border_color};
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        '>{label}</a>
+        """
 
-    return f"<div style='display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap;'>{links_html}</div>"
+    return f"""
+    <div style='
+        width: 260px; 
+        background: #FFF; 
+        padding: 25px 20px; 
+        border-radius: 12px; 
+        border: 1px solid #EFECE6; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.02);
+        height: fit-content;
+        flex-shrink: 0;
+    '>
+        <div style='font-weight: bold; color: #5C4033; font-size: 1.2rem; margin-bottom: 25px; padding-left: 5px;'>Velmora CRM</div>
+        {links_html}
+    </div>
+    """
 
-# Общий базовый стиль для страниц
+# Двухколоночный макет: слева меню, справа контент
 def base_layout(title, content, active_tab):
     return f"""
     <!DOCTYPE html>
@@ -55,9 +84,10 @@ def base_layout(title, content, active_tab):
         <style>
             * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
             body {{ background-color: #FAF8F5; color: #4A4039; padding: 30px; }}
-            .container {{ max-width: 1300px; margin: 0 auto; }}
+            .app-container {{ max-width: 1400px; margin: 0 auto; display: flex; gap: 30px; align-items: flex-start; }}
+            .main-content {{ flex: 1; min-width: 0; }}
             h1 {{ font-size: 1.8rem; color: #4A4039; margin-bottom: 5px; }}
-            .card {{ background: #FFF; border-radius: 12px; border: 1px solid #EFECE6; box-shadow: 0 4px 15px rgba(0,0,0,0.02); padding: 20px; margin-top: 20px; }}
+            .card {{ background: #FFF; border-radius: 12px; border: 1px solid #EFECE6; box-shadow: 0 4px 15px rgba(0,0,0,0.02); padding: 25px; margin-top: 20px; }}
             .table-container {{ background: #FFF; border-radius: 12px; border: 1px solid #EFECE6; box-shadow: 0 4px 15px rgba(0,0,0,0.02); overflow-x: auto; padding: 10px; margin-top: 20px; }}
             table {{ width: 100%; border-collapse: collapse; text-align: left; }}
             th {{ background: #F3EFEA; padding: 14px 15px; font-size: 0.9rem; color: #5C4033; border-bottom: 2px solid #E8DCC4; }}
@@ -65,9 +95,11 @@ def base_layout(title, content, active_tab):
         </style>
     </head>
     <body>
-        <div class="container">
-            {get_nav_html(active_tab)}
-            {content}
+        <div class="app-container">
+            {get_sidebar_html(active_tab)}
+            <div class="main-content">
+                {content}
+            </div>
         </div>
     </body>
     </html>
@@ -86,14 +118,14 @@ def read_root():
     content = f"""
     <h1>📦 Головна панель</h1>
     <p style="color: #8C7B70; margin-bottom: 20px;">Оперативна звітність та стан бізнесу</p>
-    <div style="display: flex; gap: 20px;">
-        <div class="card" style="flex: 1;">
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <div class="card" style="flex: 1; min-width: 220px; margin-top: 0;">
             <div style="color: #8C7B70; font-size: 0.9rem;">Всього замовлень</div>
-            <div style="font-size: 2rem; font-weight: bold; margin-top: 5px;">{total_orders}</div>
+            <div style="font-size: 2.2rem; font-weight: bold; margin-top: 5px; color: #4A4039;">{total_orders}</div>
         </div>
-        <div class="card" style="flex: 1;">
+        <div class="card" style="flex: 1; min-width: 220px; margin-top: 0;">
             <div style="color: #8C7B70; font-size: 0.9rem;">Статус системи</div>
-            <div style="font-size: 1.2rem; font-weight: bold; color: #28A745; margin-top: 10px;">🟢 Онлайн (Render)</div>
+            <div style="font-size: 1.2rem; font-weight: bold; color: #28A745; margin-top: 15px;">🟢 Онлайн (Render)</div>
         </div>
     </div>
     """
@@ -140,7 +172,7 @@ def get_orders_page():
     orders_html = ""
     if rows:
         for r in reversed(rows):
-            orders_html += f"<tr><td>{r[0]}</td><td><b>{r[1]}</b></td><td>{r[2]}</td><td>{r[6]}</td><td><span style='background: #E8DCC4; padding: 4px 8px; border-radius: 8px;'>{r[7]}</span></td></tr>"
+            orders_html += f"<tr><td>{r[0]}</td><td><b>{r[1]}</b></td><td>{r[2]}</td><td>{r[6]}</td><td><span style='background: #E8DCC4; padding: 4px 10px; border-radius: 10px; font-size: 0.85rem; font-weight: bold;'>{r[7]}</span></td></tr>"
     else:
         orders_html = "<tr><td colspan='5' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
 
@@ -164,7 +196,7 @@ def get_accounting_page():
     <p style="color: #8C7B70; margin-bottom: 20px;">Контроль доходів, витрат та залишків товарів</p>
     <div class="card">
         <h3>📊 Розділ в розробці</h3>
-        <p style="color: #8C7B70; margin-top: 10px;">Здесь будет финансовая аналитика, подсчет выручки и складской учет боксов.</p>
+        <p style="color: #8C7B70; margin-top: 10px;">Тут буде фінансова аналітика та підрахунок виручки.</p>
     </div>
     """
     return base_layout("Улік", content, "accounting")
@@ -177,7 +209,7 @@ def get_novaposhta_page():
     <p style="color: #8C7B70; margin-bottom: 20px;">Створення ЕН та відстеження посилок</p>
     <div class="card">
         <h3>📦 Інтеграція з API Нової Пошти</h3>
-        <p style="color: #8C7B70; margin-top: 10px;">Здесь будет генерация экспресс-накладных в один клик.</p>
+        <p style="color: #8C7B70; margin-top: 10px;">Тут буде генерація експрес-накладних.</p>
     </div>
     """
     return base_layout("Нова Пошта", content, "novaposhta")
