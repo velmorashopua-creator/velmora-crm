@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from database import save_order_to_sheet, get_google_sheet
+from database import save_order_to_sheet, get_google_sheet, update_order_in_sheet
 from datetime import datetime
 
 app = FastAPI()
@@ -23,7 +23,11 @@ class Order(BaseModel):
     warehouse: str
     product: str
 
-# Вертикальное меню (сайдбар)
+class OrderUpdate(BaseModel):
+    row_id: int
+    status: str
+    ttn: str
+
 def get_sidebar_html(active_tab="home"):
     tabs = [
         ("home", "📦 Головна", "/"),
@@ -44,38 +48,20 @@ def get_sidebar_html(active_tab="home"):
         
         links_html += f"""
         <a href='{url}' style='
-            display: block;
-            padding: 12px 16px; 
-            border-radius: 8px; 
-            text-decoration: none; 
-            font-weight: {font_weight}; 
-            font-size: 0.95rem;
-            background: {bg_color}; 
-            color: {text_color}; 
-            border: 1px solid {border_color};
-            margin-bottom: 8px;
-            transition: all 0.2s;
+            display: block; padding: 12px 16px; border-radius: 8px; text-decoration: none; 
+            font-weight: {font_weight}; font-size: 0.95rem; background: {bg_color}; 
+            color: {text_color}; border: 1px solid {border_color}; margin-bottom: 8px; transition: all 0.2s;
         '>{label}</a>
         """
 
     return f"""
-    <div style='
-        width: 260px; 
-        background: #FFF; 
-        padding: 25px 20px; 
-        border-radius: 12px; 
-        border: 1px solid #EFECE6; 
-        box-shadow: 0 4px 15px rgba(0,0,0,0.02);
-        height: fit-content;
-        flex-shrink: 0;
-    '>
+    <div style='width: 260px; background: #FFF; padding: 25px 20px; border-radius: 12px; border: 1px solid #EFECE6; box-shadow: 0 4px 15px rgba(0,0,0,0.02); height: fit-content; flex-shrink: 0;'>
         <div style='font-weight: bold; color: #5C4033; font-size: 1.2rem; margin-bottom: 25px; padding-left: 5px;'>Velmora CRM</div>
         {links_html}
     </div>
     """
 
-# Двухколоночный макет
-def base_layout(title, content, active_tab):
+def base_layout(title, content, active_tab, extra_scripts=""):
     return f"""
     <!DOCTYPE html>
     <html lang="uk">
@@ -93,6 +79,8 @@ def base_layout(title, content, active_tab):
             table {{ width: 100%; border-collapse: collapse; text-align: left; }}
             th {{ background: #F3EFEA; padding: 14px 15px; font-size: 0.9rem; color: #5C4033; border-bottom: 2px solid #E8DCC4; }}
             td {{ padding: 12px 15px; border-bottom: 1px solid #EFECE6; font-size: 0.95rem; }}
+            .action-btn {{ background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }}
+            .action-btn:hover {{ background: #D9CEBF; }}
         </style>
     </head>
     <body>
@@ -102,11 +90,11 @@ def base_layout(title, content, active_tab):
                 {content}
             </div>
         </div>
+        {extra_scripts}
     </body>
     </html>
     """
 
-# --- 1. ГОЛОВНА ---
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     try:
@@ -114,54 +102,31 @@ def read_root():
         rows = sheet.get_all_values()
     except:
         rows = []
-
     total_orders = len(rows) - 1 if len(rows) > 1 else 0
     content = f"""
-    <h1>📦 Головна панель</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Оперативна звітність та стан бізнесу</p>
+    <h1>📦 Головна панель</h1><p style="color: #8C7B70; margin-bottom: 20px;">Оперативна звітність</p>
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-        <div class="card" style="flex: 1; min-width: 220px; margin-top: 0;">
-            <div style="color: #8C7B70; font-size: 0.9rem;">Всього замовлень</div>
-            <div style="font-size: 2.2rem; font-weight: bold; margin-top: 5px; color: #4A4039;">{total_orders}</div>
-        </div>
-        <div class="card" style="flex: 1; min-width: 220px; margin-top: 0;">
-            <div style="color: #8C7B70; font-size: 0.9rem;">Статус системи</div>
-            <div style="font-size: 1.2rem; font-weight: bold; color: #28A745; margin-top: 15px;">🟢 Онлайн (Render)</div>
-        </div>
+        <div class="card" style="flex: 1; min-width: 220px; margin-top: 0;"><div style="color: #8C7B70; font-size: 0.9rem;">Всього замовлень</div><div style="font-size: 2.2rem; font-weight: bold; margin-top: 5px; color: #4A4039;">{total_orders}</div></div>
     </div>
     """
     return base_layout("Головна", content, "home")
 
-# --- 2. КЛІЄНТИ ---
 @app.get("/clients", response_class=HTMLResponse)
 def get_clients_page():
-    try:
-        sheet = get_google_sheet()
-        rows = sheet.get_all_values()[1:]
-    except:
-        rows = []
+    return base_layout("Клієнти", "<h1>👥 База клієнтів</h1><div class='card'>В розробці</div>", "clients")
 
-    clients_html = ""
-    if rows:
-        for r in rows:
-            if len(r) >= 6:
-                clients_html += f"<tr><td><b>{r[1]}</b></td><td>{r[2]}</td><td>{r[3]}</td><td>{r[4]}</td></tr>"
-    else:
-        clients_html = "<tr><td colspan='4' style='text-align: center; color: #8C7B70;'>Поки що немає клієнтів</td></tr>"
+@app.get("/accounting", response_class=HTMLResponse)
+def get_accounting_page():
+    return base_layout("Облік", "<h1>💰 Облік</h1><div class='card'>В розробці</div>", "accounting")
 
-    content = f"""
-    <h1>👥 База клієнтів</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Список усіх покупців</p>
-    <div class="table-container">
-        <table>
-            <thead><tr><th>Ім'я</th><th>Телефон</th><th>Улюбленець</th><th>Місто</th></tr></thead>
-            <tbody>{clients_html}</tbody>
-        </table>
-    </div>
-    """
-    return base_layout("Клієнти", content, "clients")
+@app.get("/novaposhta", response_class=HTMLResponse)
+def get_novaposhta_page():
+    return base_layout("Нова Пошта", "<h1>🚚 Нова Пошта</h1><div class='card'>В розробці</div>", "novaposhta")
 
-# --- 3. ЗАМОВЛЕННЯ ---
+@app.get("/messages", response_class=HTMLResponse)
+def get_messages_page():
+    return base_layout("Повідомлення", "<h1>💬 Повідомлення</h1><div class='card'>В розробці</div>", "messages")
+
 @app.get("/orders", response_class=HTMLResponse)
 def get_orders_page():
     try:
@@ -171,62 +136,78 @@ def get_orders_page():
         rows = []
 
     orders_html = ""
+    status_list = ["Новий", "В роботі", "Відправлено", "Отримано", "Виконано"]
+    
     if rows:
-        for r in reversed(rows):
-            orders_html += f"<tr><td>{r[0]}</td><td><b>{r[1]}</b></td><td>{r[2]}</td><td>{r[6]}</td><td><span style='background: #E8DCC4; padding: 4px 10px; border-radius: 10px; font-size: 0.85rem; font-weight: bold;'>{r[7]}</span></td></tr>"
+        for idx, r in enumerate(reversed(rows)):
+            original_row_num = len(rows) - idx + 1
+            date, name, phone = r[0], r[1], r[2]
+            product = r[6] if len(r) > 6 else ""
+            status = r[7] if len(r) > 7 else "Новий"
+            ttn = r[8] if len(r) > 8 else ""
+
+            options = "".join([f"<option value='{s}' {'selected' if s == status else ''}>{s}</option>" for s in status_list])
+            
+            orders_html += f"""
+            <tr>
+                <td>{date}</td>
+                <td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td>
+                <td>{product}</td>
+                <td>
+                    <select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>
+                        {options}
+                    </select>
+                </td>
+                <td>
+                    <input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'>
+                </td>
+                <td>
+                    <button class='action-btn' onclick='updateOrder(this, {original_row_num})'>💾</button>
+                </td>
+            </tr>
+            """
     else:
-        orders_html = "<tr><td colspan='5' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
+        orders_html = "<tr><td colspan='6' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
 
     content = f"""
     <h1>📋 Усі замовлення</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Керування статусами та деталями</p>
+    <p style="color: #8C7B70; margin-bottom: 20px;">Керування статусами та ТТН</p>
     <div class="table-container">
         <table>
-            <thead><tr><th>Дата</th><th>Ім'я</th><th>Телефон</th><th>Товар</th><th>Статус</th></tr></thead>
+            <thead><tr><th>Дата</th><th>Клієнт</th><th>Товар</th><th>Статус</th><th>ТТН</th><th>Дія</th></tr></thead>
             <tbody>{orders_html}</tbody>
         </table>
     </div>
     """
-    return base_layout("Замовлення", content, "orders")
-
-# --- 4. ОБЛІК ---
-@app.get("/accounting", response_class=HTMLResponse)
-def get_accounting_page():
-    content = """
-    <h1>💰 Облік та Фінанси</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Контроль доходів, витрат та залишків товарів</p>
-    <div class="card">
-        <h3>📊 Розділ в розробці</h3>
-        <p style="color: #8C7B70; margin-top: 10px;">Тут буде фінансова аналітика та підрахунок виручки.</p>
-    </div>
+    
+    scripts = """
+    <script>
+    async function updateOrder(btn, rowNum) {
+        const tr = btn.closest('tr');
+        const status = tr.querySelector('.status-select').value;
+        const ttn = tr.querySelector('.ttn-input').value;
+        
+        btn.innerText = '⏳';
+        
+        try {
+            const response = await fetch('/update-order', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({row_id: rowNum, status: status, ttn: ttn})
+            });
+            if (response.ok) {
+                btn.innerText = '✅';
+                setTimeout(() => btn.innerText = '💾', 2000);
+            } else {
+                btn.innerText = '❌';
+            }
+        } catch(e) {
+            btn.innerText = '❌';
+        }
+    }
+    </script>
     """
-    return base_layout("Облік", content, "accounting")
-
-# --- 5. НОВА ПОШТА ---
-@app.get("/novaposhta", response_class=HTMLResponse)
-def get_novaposhta_page():
-    content = """
-    <h1>🚚 Нова Пошта</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Створення ЕН та відстеження посилок</p>
-    <div class="card">
-        <h3>📦 Інтеграція з API Нової Пошти</h3>
-        <p style="color: #8C7B70; margin-top: 10px;">Тут буде генерація експрес-накладних.</p>
-    </div>
-    """
-    return base_layout("Нова Пошта", content, "novaposhta")
-
-# --- 6. ПОВІДОМЛЕННЯ ---
-@app.get("/messages", response_class=HTMLResponse)
-def get_messages_page():
-    content = """
-    <h1>💬 Повідомлення</h1>
-    <p style="color: #8C7B70; margin-bottom: 20px;">Чат з клієнтами та системні сповіщення</p>
-    <div class="card">
-        <h3>📩 Розділ в розробці</h3>
-        <p style="color: #8C7B70; margin-top: 10px;">Тут буде історія повідомлень та розсилки.</p>
-    </div>
-    """
-    return base_layout("Повідомлення", content, "messages")
+    return base_layout("Замовлення", content, "orders", extra_scripts=scripts)
 
 @app.post("/add-order")
 def add_order(order: Order):
@@ -235,3 +216,8 @@ def add_order(order: Order):
     order_data["status"] = "Новий"
     save_order_to_sheet(order_data)
     return {"status": "success", "message": "Замовлення прийнято"}
+
+@app.post("/update-order")
+def update_order_route(data: OrderUpdate):
+    update_order_in_sheet(data.row_id, data.status, data.ttn)
+    return {"status": "success"}
