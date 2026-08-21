@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List
-from database import save_order_to_sheet, get_google_sheet, update_order_in_sheet, add_prichid_bulk, add_vydatky
+from database import save_order_to_sheet, get_google_sheet, update_order_in_sheet, add_prichid_bulk, add_vydatky, get_specs_from_sheet, add_vitraty_bulk
 from datetime import datetime
 
 app = FastAPI()
@@ -41,28 +41,6 @@ class AssembleRequest(BaseModel):
     box_id: str
     qty: int
 
-# --- ТЕХКАРТИ БОКСІВ (ІНДЕКСИ СИРОВИНИ) ---
-RECIPES = {
-    "box_1": {
-        "article": "BOX-READY-01",
-        "name": "Подарунковий бокс №1",
-        "components": [
-            {"article": "1.1", "name": "Коробка крафтова 25х20", "qty": 1},
-            {"article": "1.2", "name": "Наповнювач деревний", "qty": 1},
-            {"article": "1.3", "name": "Стрічка атласна", "qty": 2}
-        ]
-    },
-    "box_2": {
-        "article": "BOX-READY-02",
-        "name": "Подарунковий бокс №2 (Преміум)",
-        "components": [
-            {"article": "2.1", "name": "Коробка біла 30х30", "qty": 1},
-            {"article": "2.2", "name": "Наповнювач кольоровий", "qty": 1},
-            {"article": "1.3", "name": "Стрічка атласна", "qty": 1}
-        ]
-    }
-}
-
 # --- ВІЗУАЛ (МЕНЮ ТА ШАБЛОН) ---
 def get_sidebar_html(active_tab="home"):
     tabs = [
@@ -99,7 +77,7 @@ def base_layout(title, content, active_tab, extra_scripts=""):
             table {{ width: 100%; border-collapse: collapse; text-align: left; }}
             th {{ background: #F3EFEA; padding: 12px; font-size: 0.9rem; color: #5C4033; border-bottom: 2px solid #E8DCC4; }}
             td {{ padding: 10px; border-bottom: 1px solid #EFECE6; }}
-            .form-control {{ width: 100%; padding: 8px; border: 1px solid #D9CEBF; border-radius: 6px; background: #FAF8F5; }}
+            .form-control {{ width: 100%; padding: 8px; border: 1px solid #D9CEBF; border-radius: 6px; background: #FFF; }}
             .btn-submit {{ background: #8C7262; color: #FFF; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }}
             .btn-submit:hover {{ background: #6E574B; }}
             .tab-btn {{ padding: 10px 20px; border: none; background: #EFECE6; cursor: pointer; font-weight: bold; border-radius: 8px 8px 0 0; margin-right: 5px; color: #8C7B70; }}
@@ -157,7 +135,7 @@ def get_orders_page():
 
             options = "".join([f"<option value='{s}' {'selected' if s == status else ''}>{s}</option>" for s in status_list])
             
-            orders_html += f"<tr><td>{date}</td><td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td><td>{product}</td><td><select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>{options}</select></td><td><input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'></td><td><button class='action-btn' onclick='updateOrder(this, {original_row_num})'>💾</button></td></tr>"
+            orders_html += f"<tr><td>{date}</td><td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td><td>{product}</td><td><select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>{options}</select></td><td><input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'></td><td><button class='action-btn' onclick='updateOrder(this, {original_row_num})' style='background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;'>💾</button></td></tr>"
     else:
         orders_html = "<tr><td colspan='6' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
 
@@ -168,11 +146,14 @@ def get_orders_page():
 
 @app.get("/accounting", response_class=HTMLResponse)
 def get_accounting_page():
-    
-    # Генерація випадаючого списку боксів для збірки
+    # Завантаження специфікацій прямо з Google Таблиці
+    recipes = get_specs_from_sheet()
     box_options = ""
-    for b_id, b_data in RECIPES.items():
+    for b_id, b_data in recipes.items():
         box_options += f"<option value='{b_id}'>{b_data['name']} (Арт: {b_data['article']})</option>"
+
+    if not box_options:
+        box_options = "<option disabled>Заповніть лист 'Спеціфікація' у таблиці</option>"
 
     content = f"""
     <h1>💰 Облік та Склад</h1>
@@ -183,76 +164,92 @@ def get_accounting_page():
         <button class="tab-btn" onclick="openTab(event, 'tab-vydatky')">💸 Операційні витрати</button>
     </div>
 
-    <!-- ТАБ 1: ПРИХОДНАЯ НАКЛАДНАЯ -->
+    <!-- ТАБ 1: ПРИХОДНАЯ НАКЛАДНАЯ (НОВЫЙ УМНЫЙ ДИЗАЙН) -->
     <div id="tab-prichid" class="tab-content active">
-        <h3 style="margin-bottom: 15px; color: #5C4033;">Створення Прибуткової Накладної</h3>
-        
-        <datalist id="nomenclature-list"></datalist>
-
         <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-            <div style="flex:1;"><label>№ Накладної</label><input type="text" id="pn_doc" class="form-control" required placeholder="ПН-001"></div>
-            <div style="flex:2;"><label>Постачальник</label><input type="text" id="pn_supplier" class="form-control" required placeholder="ФОП Іванов"></div>
+            <div style="flex:1;"><label style="font-weight:bold; font-size:0.9rem; color:#8C7B70;">№ Накладної</label><input type="text" id="pn_doc" class="form-control" required placeholder="Напр. 001"></div>
+            <div style="flex:2;"><label style="font-weight:bold; font-size:0.9rem; color:#8C7B70;">Постачальник</label><input type="text" id="pn_supplier" class="form-control" required placeholder="Напр. ФОП Іванов"></div>
+        </div>
+
+        <!-- УМНАЯ ПАНЕЛЬ ПОДБОРА (ЯК В 1С) -->
+        <div style="background: #F3EFEA; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #D9CEBF;">
+            <label style="font-weight: bold; color: #5C4033; margin-bottom: 10px; display: block;">🔍 Підбір товару (Пошук по базі)</label>
+            <div style="display: flex; gap: 10px; align-items: flex-end;">
+                <div style="flex: 2;">
+                    <label style="font-size: 0.8rem; color: #8C7B70;">Артикул / Пошук</label>
+                    <input type="text" id="smart_search" class="form-control" list="nomenclature-list" placeholder="Почніть вводити..." onchange="selectFromSearch(this)">
+                    <datalist id="nomenclature-list"></datalist>
+                </div>
+                <div style="flex: 2;">
+                    <label style="font-size: 0.8rem; color: #8C7B70;">Назва товару/сировини</label>
+                    <input type="text" id="smart_name" class="form-control" placeholder="Назва підтягнеться...">
+                </div>
+                <div style="width: 100px;">
+                    <label style="font-size: 0.8rem; color: #8C7B70;">Кількість</label>
+                    <input type="number" id="smart_qty" class="form-control" value="1" min="1">
+                </div>
+                <div style="width: 120px;">
+                    <label style="font-size: 0.8rem; color: #8C7B70;">Сума (грн)</label>
+                    <input type="number" step="0.01" id="smart_sum" class="form-control" placeholder="0.00">
+                </div>
+                <div>
+                    <button type="button" class="btn-submit" onclick="addSelectedRow()" style="background: #5C4033;">➕ Додати</button>
+                </div>
+            </div>
         </div>
         
-        <table id="pn-table" style="margin-bottom: 15px;">
-            <thead><tr><th>Артикул</th><th>Товар / Сировина</th><th>К-сть</th><th>Загальна сума (грн)</th><th>Дія</th></tr></thead>
+        <table id="pn-table" style="margin-bottom: 20px; background: #FFF; border-radius: 8px; overflow: hidden; border: 1px solid #EFECE6;">
+            <thead><tr><th>Артикул</th><th>Товар / Сировина</th><th>К-сть</th><th>Сума (грн)</th><th>Дія</th></tr></thead>
             <tbody id="pn-body">
-                <tr>
-                    <td><input type="text" class="i-art form-control" list="nomenclature-list" onchange="onArticleChange(this)" placeholder="Напр. 1.1"></td>
-                    <td><input type="text" class="i-name form-control" placeholder="Коробка"></td>
-                    <td><input type="number" class="i-qty form-control" value="1"></td>
-                    <td><input type="number" step="0.01" class="i-sum form-control" placeholder="0.00"></td>
-                    <td><button onclick="this.closest('tr').remove()" style="padding: 5px; cursor: pointer;">❌</button></td>
-                </tr>
+                <!-- Сюди падатимуть рядки після Підбору -->
             </tbody>
         </table>
         
-        <div style="display: flex; justify-content: space-between;">
-            <button onclick="addPnRow()" style="padding: 8px 15px; border: 1px dashed #8C7262; background: transparent; cursor: pointer; border-radius: 6px; font-weight: bold; color: #8C7262;">+ Додати рядок</button>
-            <button onclick="submitPn()" class="btn-submit">💾 Провести накладну</button>
+        <div style="display: flex; justify-content: flex-end;">
+            <button onclick="submitPn()" class="btn-submit" style="padding: 12px 25px; font-size: 1.05rem;">💾 Провести накладну</button>
         </div>
     </div>
 
     <!-- ТАБ 2: КОМПЛЕКТАЦИЯ (СБОРКА БОКСОВ) -->
     <div id="tab-assembly" class="tab-content">
         <h3 style="margin-bottom: 15px; color: #5C4033;">Акт комплектації боксу</h3>
-        <p style="color: #8C7B70; font-size: 0.9rem; margin-bottom: 15px;">Оберіть бокс, і система автоматично спише необхідну сировину за індексами та створить готовий товар.</p>
+        <p style="color: #8C7B70; font-size: 0.9rem; margin-bottom: 20px;">Оберіть бокс, і система спише сировину (за вашою таблицею "Спеціфікація") та оприбуткує готовий товар.</p>
         
-        <div style="max-width: 500px;">
+        <div style="max-width: 500px; background: #F3EFEA; padding: 20px; border-radius: 8px; border: 1px solid #D9CEBF;">
             <div style="margin-bottom: 15px;">
-                <label>Оберіть бокс для збірки</label>
-                <select id="box_select" class="form-control">
+                <label style="font-weight:bold; font-size:0.9rem; color:#5C4033;">Який бокс збираємо?</label>
+                <select id="box_select" class="form-control" style="margin-top: 5px;">
                     {box_options}
                 </select>
             </div>
-            <div style="margin-bottom: 15px;">
-                <label>Кількість зібраних боксів</label>
-                <input type="number" id="box_qty" class="form-control" value="1" min="1">
+            <div style="margin-bottom: 20px;">
+                <label style="font-weight:bold; font-size:0.9rem; color:#5C4033;">Кількість зібраних боксів</label>
+                <input type="number" id="box_qty" class="form-control" value="1" min="1" style="margin-top: 5px;">
             </div>
-            <button onclick="assembleBox(this)" class="btn-submit" style="background: #4CAF50; width: 100%;">⚙️ Скомплектувати та Списати сировину</button>
+            <button onclick="assembleBox(this)" class="btn-submit" style="background: #4CAF50; width: 100%; font-size: 1.05rem;">⚙️ Зібрати та Провести в облік</button>
         </div>
     </div>
 
     <!-- ТАБ 3: ОПЕРАЦИОННЫЕ РАСХОДЫ -->
     <div id="tab-vydatky" class="tab-content">
-        <h3 style="margin-bottom: 15px; color: #5C4033;">Фіксація витрат</h3>
-        <form id="form-vydatky">
+        <h3 style="margin-bottom: 15px; color: #5C4033;">Фіксація операційних витрат</h3>
+        <form id="form-vydatky" style="max-width: 500px;">
             <label>Категорія</label>
-            <select id="v_cat" class="form-control" style="margin-bottom: 10px;">
+            <select id="v_cat" class="form-control" style="margin-bottom: 15px;">
                 <option>Логістика (НП)</option><option>Реклама</option><option>Оренда/Сервіси</option><option>Канцтовари</option>
             </select>
             <label>Сума (грн)</label>
-            <input type="number" step="0.01" id="v_sum" class="form-control" style="margin-bottom: 10px;" required>
+            <input type="number" step="0.01" id="v_sum" class="form-control" style="margin-bottom: 15px;" required>
             <label>Коментар</label>
-            <input type="text" id="v_com" class="form-control" style="margin-bottom: 10px;">
-            <button type="submit" class="btn-submit" style="background: #A35D5D;">Зафіксувати</button>
+            <input type="text" id="v_com" class="form-control" style="margin-bottom: 20px;">
+            <button type="submit" class="btn-submit" style="background: #A35D5D; width: 100%;">Зафіксувати витрату</button>
         </form>
     </div>
     """
     
     scripts = """
     <script>
-        let nomenclature = {};
+        let nomData = {}; // База товарів для підбору
 
         // Завантаження довідника товарів
         window.onload = async function() {
@@ -261,7 +258,7 @@ def get_accounting_page():
                 let data = await res.json();
                 let dl = document.getElementById('nomenclature-list');
                 data.forEach(item => {
-                    nomenclature[item.article] = item.name;
+                    nomData[item.article] = item.name;
                     let opt = document.createElement('option');
                     opt.value = item.article;
                     opt.text = item.name;
@@ -270,11 +267,52 @@ def get_accounting_page():
             } catch(e) {}
         };
 
-        function onArticleChange(input) {
+        // Логіка Розумного Пошуку (Підбору)
+        function selectFromSearch(input) {
             let art = input.value;
-            if(nomenclature[art]) {
-                input.closest('tr').querySelector('.i-name').value = nomenclature[art];
+            if(nomData[art]) {
+                document.getElementById('smart_name').value = nomData[art];
+                document.getElementById('smart_name').readOnly = true;
+                document.getElementById('smart_qty').focus();
+            } else {
+                // Новий товар
+                document.getElementById('smart_name').value = "";
+                document.getElementById('smart_name').readOnly = false;
+                document.getElementById('smart_name').placeholder = "Введіть назву нового товару...";
+                document.getElementById('smart_name').focus();
             }
+        }
+
+        // Додавання рядка в накладну з Підбору
+        function addSelectedRow() {
+            let art = document.getElementById('smart_search').value.trim();
+            let name = document.getElementById('smart_name').value.trim();
+            let qty = document.getElementById('smart_qty').value;
+            let sum = document.getElementById('smart_sum').value;
+
+            if(!art || !name || !qty || !sum) {
+                alert("Заповніть всі поля товару (Артикул, Назва, К-сть, Сума)!");
+                return;
+            }
+
+            const tbody = document.getElementById('pn-body');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="i-art form-control" value="${art}" readonly style="border:none; background:transparent;"></td>
+                <td><input type="text" class="i-name form-control" value="${name}" readonly style="border:none; background:transparent;"></td>
+                <td><input type="number" class="i-qty form-control" value="${qty}" readonly style="border:none; background:transparent;"></td>
+                <td><input type="number" step="0.01" class="i-sum form-control" value="${sum}" readonly style="border:none; background:transparent;"></td>
+                <td><button onclick="this.closest('tr').remove()" style="padding: 5px 10px; cursor: pointer; background: #FFDDDD; border: none; border-radius: 4px;">❌</button></td>
+            `;
+            tbody.appendChild(tr);
+
+            // Очищення форми підбору для наступного товару
+            document.getElementById('smart_search').value = "";
+            document.getElementById('smart_name').value = "";
+            document.getElementById('smart_name').readOnly = false;
+            document.getElementById('smart_qty').value = "1";
+            document.getElementById('smart_sum').value = "";
+            document.getElementById('smart_search').focus();
         }
 
         function openTab(evt, tabName) {
@@ -282,19 +320,6 @@ def get_accounting_page():
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabName).classList.add('active');
             evt.currentTarget.classList.add('active');
-        }
-
-        function addPnRow() {
-            const tbody = document.getElementById('pn-body');
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><input type="text" class="i-art form-control" list="nomenclature-list" onchange="onArticleChange(this)"></td>
-                <td><input type="text" class="i-name form-control"></td>
-                <td><input type="number" class="i-qty form-control" value="1"></td>
-                <td><input type="number" step="0.01" class="i-sum form-control"></td>
-                <td><button onclick="this.closest('tr').remove()" style="padding: 5px; cursor: pointer;">❌</button></td>
-            `;
-            tbody.appendChild(tr);
         }
 
         async function submitPn() {
@@ -315,7 +340,7 @@ def get_accounting_page():
                 }
             });
 
-            if(items.length === 0) return alert("Додайте хоча б один товар!");
+            if(items.length === 0) return alert("Додайте хоча б один товар через Підбір!");
 
             try {
                 const response = await fetch('/add-prichid-bulk', {
@@ -324,9 +349,9 @@ def get_accounting_page():
                     body: JSON.stringify({ doc_number: docNum, supplier: supplier, items: items })
                 });
                 if(response.ok) {
-                    alert('Накладну успішно проведено!');
-                    document.getElementById('pn-body').innerHTML = '';
-                    addPnRow(); 
+                    alert('Накладну успішно проведено у таблицю!');
+                    document.getElementById('pn-body').innerHTML = ''; // очистка таблиці
+                    document.getElementById('pn_doc').value = ''; 
                 }
             } catch (err) { alert('Помилка зєднання.'); }
         }
@@ -335,7 +360,7 @@ def get_accounting_page():
             const box_id = document.getElementById('box_select').value;
             const qty = document.getElementById('box_qty').value;
             
-            btn.innerText = "⏳ Створюємо...";
+            btn.innerText = "⏳ Створюємо та списуємо...";
             try {
                 const response = await fetch('/api/assemble', {
                     method: 'POST',
@@ -344,12 +369,12 @@ def get_accounting_page():
                 });
                 const result = await response.json();
                 if(result.status === "success") {
-                    alert('Бокси успішно зібрано! Сировину списано, готову продукцію оприбутковано.');
+                    alert('Успішно! Сировину списано у "Витрати", а готові бокси оприбутковано у "Прихід".');
                 } else {
                     alert('Помилка: ' + result.message);
                 }
             } catch (err) { alert('Помилка зєднання.'); }
-            finally { btn.innerText = "⚙️ Скомплектувати та Списати сировину"; }
+            finally { btn.innerText = "⚙️ Зібрати та Провести в облік"; }
         }
 
         document.getElementById('form-vydatky').addEventListener('submit', async (e) => {
@@ -376,7 +401,7 @@ def get_messages_page():
 
 @app.get("/api/nomenclature")
 def get_nomenclature():
-    """Збирає унікальні товари з листа 'Прихід' для автозаповнення"""
+    """Збирає унікальні товари з листа 'Прихід' для автозаповнення Підбору"""
     try:
         sheet = get_google_sheet("Прихід")
         rows = sheet.get_all_values()
@@ -384,7 +409,7 @@ def get_nomenclature():
         if len(rows) > 1:
             for r in rows[1:]:
                 if len(r) >= 4:
-                    art, name = r[2], r[3] # Колонка C (Артикул) та D (Товар) з вашого скріншоту
+                    art, name = r[2], r[3] 
                     if art and art not in items:
                         items[art] = name
         return [{"article": k, "name": v} for k, v in items.items()]
@@ -394,29 +419,28 @@ def get_nomenclature():
 @app.post("/api/assemble")
 def api_assemble(req: AssembleRequest):
     """
-    Логіка збірки:
-    1. Оприбутковує готовий бокс на лист 'Прихід'.
-    2. Списує компоненти (1.1, 1.2) на лист 'Витрати' з позначкою ЗБІРКА.
+    Збірка боксу:
+    1. Читає лист 'Спеціфікація'.
+    2. Списує компоненти у лист 'Витрати'.
+    3. Оприбутковує готовий бокс на лист 'Прихід'.
     """
-    if req.box_id not in RECIPES:
-        return {"status": "error", "message": "Рецепт не знайдено"}
+    recipes = get_specs_from_sheet()
+    if req.box_id not in recipes:
+        return {"status": "error", "message": "Специфікацію не знайдено на листі у Таблиці"}
     
-    recipe = RECIPES[req.box_id]
+    recipe = recipes[req.box_id]
     date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     doc_num = f"АКТ-ЗБІРКИ-{int(datetime.now().timestamp())}"
     
     try:
         # 1. Запис готового боксу у Прихід
-        # Колонки: Дата | № Прибуткової | Артикул | Товар | Кількість | сума | постачальник | собівартість
         prichid_row = [
-            date_str, doc_num, recipe["article"], f"{recipe['name']} (Зібрано)", 
+            date_str, doc_num, recipe["article"], f"{recipe['name']} (Зібрано власно)", 
             str(req.qty), "0", "Власне виробництво", "0"
         ]
-        sheet_prichid = get_google_sheet("Прихід")
-        sheet_prichid.append_row(prichid_row)
+        add_prichid_bulk([prichid_row])
         
         # 2. Списання сировини у Витрати
-        # Колонки: дата | № Замовлення | № Видаткової накладної | № Рахунку | Артикул | Товар | Кількість | Собівартість | ціна продажу | прибуток
         vydatky_rows = []
         for comp in recipe["components"]:
             total_comp_qty = comp["qty"] * req.qty
@@ -426,8 +450,7 @@ def api_assemble(req: AssembleRequest):
             ]
             vydatky_rows.append(v_row)
             
-        sheet_vitraty = get_google_sheet("Витрати")
-        sheet_vitraty.append_rows(vydatky_rows)
+        add_vitraty_bulk(vydatky_rows)
         
         return {"status": "success"}
     except Exception as e:
