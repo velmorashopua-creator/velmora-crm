@@ -54,12 +54,16 @@ def add_vydatky(data: dict):
     ]
     sheet.append_row(row)
 
+def add_specification_rows(rows_data: list):
+    """Зберігає нові рецепти боксів на лист Спеціфікація"""
+    sheet = get_google_sheet("Спеціфікація")
+    sheet.append_rows(rows_data)
+
 def get_specs_from_sheet():
     """Читає лист Спеціфікація та формує техкарти боксів"""
     try:
         sheet = get_google_sheet("Спеціфікація")
         rows = sheet.get_all_values()
-        # Колонки: Артикул боксу | Назва боксу | Артикул сировини | Назва сировини | Норма на 1 бокс
         recipes = {}
         if len(rows) > 1:
             for r in rows[1:]:
