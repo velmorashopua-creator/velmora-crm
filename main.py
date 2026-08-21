@@ -90,6 +90,8 @@ def base_layout(title, content, active_tab, extra_scripts=""):
             .form-control {{ width: 100%; padding: 8px; border: 1px solid #D9CEBF; border-radius: 6px; background: #FFF; }}
             .btn-submit {{ background: #8C7262; color: #FFF; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
             .btn-submit:hover {{ background: #6E574B; }}
+            .btn-outline {{ padding: 8px 15px; border: 1px dashed #8C7262; background: transparent; cursor: pointer; border-radius: 6px; font-weight: bold; color: #8C7262; transition: 0.2s; }}
+            .btn-outline:hover {{ background: #F3EFEA; }}
             .tab-btn {{ padding: 10px 20px; border: none; background: #EFECE6; cursor: pointer; font-weight: bold; border-radius: 8px 8px 0 0; margin-right: 5px; color: #8C7B70; }}
             .tab-btn.active {{ background: #FFF; color: #5C4033; border-top: 3px solid #8C7262; }}
             .tab-content {{ display: none; background: #FFF; padding: 25px; border-radius: 0 12px 12px 12px; border: 1px solid #EFECE6; box-shadow: 0 4px 15px rgba(0,0,0,0.02); }}
@@ -200,7 +202,7 @@ def get_accounting_page():
         <button class="tab-btn" onclick="openTab(event, 'tab-vydatky')">💸 Видатки</button>
     </div>
 
-    <!-- ТАБ 1: ПРИХОДНАЯ НАКЛАДНАЯ (15 РЯДКІВ) -->
+    <!-- ТАБ 1: ПРИХОДНАЯ НАКЛАДНАЯ -->
     <div id="tab-prichid" class="tab-content active">
         <div style="display: flex; gap: 15px; margin-bottom: 20px;">
             <div style="flex:1;"><label style="font-weight:bold; font-size:0.9rem; color:#8C7B70;">№ Накладної</label><input type="text" id="pn_doc" class="form-control" required placeholder="Напр. 001"></div>
@@ -209,14 +211,15 @@ def get_accounting_page():
 
         <p style="color: #8C7B70; font-size: 0.85rem; margin-bottom: 10px;"><i>Підказка: Почніть вводити Артикул, і назва підтягнеться автоматично. Пусті рядки будуть проігноровані при збереженні.</i></p>
         
-        <table id="pn-table" style="margin-bottom: 20px; background: #FFF; border-radius: 8px; border: 1px solid #EFECE6;">
+        <table style="margin-bottom: 10px; background: #FFF; border-radius: 8px; border: 1px solid #EFECE6;">
             <thead><tr><th style="width: 20%;">Артикул</th><th style="width: 45%;">Товар / Сировина</th><th style="width: 15%;">К-сть</th><th style="width: 15%;">Сума (грн)</th><th style="width: 5%;"></th></tr></thead>
             <tbody id="pn-body">
                 {pn_rows}
             </tbody>
         </table>
         
-        <div style="display: flex; justify-content: flex-end;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+            <button onclick="addPnRow()" class="btn-outline">➕ Додати рядок</button>
             <button onclick="submitPn()" class="btn-submit" style="padding: 12px 25px; font-size: 1.05rem;">💾 Провести накладну</button>
         </div>
     </div>
@@ -252,14 +255,15 @@ def get_accounting_page():
 
         <p style="color: #8C7B70; font-size: 0.9rem; margin-bottom: 10px;">Вкажіть, яка сировина і в якій кількості потрібна для <b>1 такого боксу</b>:</p>
         
-        <table style="margin-bottom: 20px; border: 1px solid #EFECE6;">
+        <table style="margin-bottom: 10px; border: 1px solid #EFECE6;">
             <thead><tr><th style="width: 25%;">Арт. Сировини</th><th style="width: 50%;">Назва Сировини</th><th style="width: 25%;">Норма (шт/м)</th></tr></thead>
             <tbody id="spec-body">
                 {spec_rows}
             </tbody>
         </table>
         
-        <div style="display: flex; justify-content: flex-end;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+            <button onclick="addSpecRow()" class="btn-outline">➕ Додати рядок</button>
             <button onclick="saveSpecification(this)" class="btn-submit" style="padding: 12px 25px; font-size: 1.05rem; background: #5C4033;">📑 Зберегти Специфікацію</button>
         </div>
     </div>
@@ -300,20 +304,15 @@ def get_accounting_page():
             } catch(e) {}
         };
 
-        // Автозаповнення назви в таблиці Приходу
+        // Автозаповнення
         function smartFillRow(input) {
             let art = input.value.trim();
-            if(nomData[art]) {
-                input.closest('tr').querySelector('.i-name').value = nomData[art];
-            }
+            if(nomData[art]) { input.closest('tr').querySelector('.i-name').value = nomData[art]; }
         }
 
-        // Автозаповнення назви в таблиці Специфікацій
         function smartFillRowSpec(input) {
             let art = input.value.trim();
-            if(nomData[art]) {
-                input.closest('tr').querySelector('.s-name').value = nomData[art];
-            }
+            if(nomData[art]) { input.closest('tr').querySelector('.s-name').value = nomData[art]; }
         }
 
         function clearRow(btn) {
@@ -324,6 +323,31 @@ def get_accounting_page():
             tr.querySelector('.i-sum').value = "";
         }
 
+        // Додавання нових рядків
+        function addPnRow() {
+            const tbody = document.getElementById('pn-body');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="i-art form-control" list="nomenclature-list" onchange="smartFillRow(this)" placeholder="Артикул"></td>
+                <td><input type="text" class="i-name form-control" placeholder="Назва товару"></td>
+                <td><input type="number" class="i-qty form-control" placeholder="0"></td>
+                <td><input type="number" step="0.01" class="i-sum form-control" placeholder="0.00"></td>
+                <td style="text-align:center;"><button type="button" onclick="clearRow(this)" style="padding: 4px 8px; background: #FFDDDD; border: none; border-radius: 4px; cursor: pointer;" title="Очистити рядок">❌</button></td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        function addSpecRow() {
+            const tbody = document.getElementById('spec-body');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="s-art form-control" list="nomenclature-list" onchange="smartFillRowSpec(this)" placeholder="Арт. сировини"></td>
+                <td><input type="text" class="s-name form-control" placeholder="Назва сировини"></td>
+                <td><input type="number" step="0.01" class="s-qty form-control" placeholder="Норма"></td>
+            `;
+            tbody.appendChild(tr);
+        }
+
         function openTab(evt, tabName) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -331,7 +355,7 @@ def get_accounting_page():
             evt.currentTarget.classList.add('active');
         }
 
-        // Відправка Прибуткової Накладної
+        // Збереження
         async function submitPn() {
             const docNum = document.getElementById('pn_doc').value;
             const supplier = document.getElementById('pn_supplier').value;
@@ -346,7 +370,6 @@ def get_accounting_page():
                 const qty = row.querySelector('.i-qty').value;
                 const sum = row.querySelector('.i-sum').value;
                 
-                // Ігноруємо пусті рядки
                 if(art && name && qty && sum) {
                     items.push({ article: art, name: name, qty: parseInt(qty), total_sum: parseFloat(sum) });
                 }
@@ -362,12 +385,11 @@ def get_accounting_page():
                 });
                 if(response.ok) {
                     alert('Накладну успішно проведено!');
-                    window.location.reload(); // Оновлюємо сторінку для очистки
+                    window.location.reload(); 
                 }
             } catch (err) { alert('Помилка зєднання.'); }
         }
 
-        // Збереження Специфікації
         async function saveSpecification(btn) {
             const boxArt = document.getElementById('spec_box_art').value.trim();
             const boxName = document.getElementById('spec_box_name').value.trim();
@@ -403,7 +425,6 @@ def get_accounting_page():
             finally { btn.innerText = "📑 Зберегти Специфікацію"; }
         }
 
-        // Комплектація
         async function assembleBox(btn) {
             const boxSelect = document.getElementById('box_select');
             const box_id = boxSelect.value;
@@ -427,7 +448,6 @@ def get_accounting_page():
             finally { btn.innerText = "⚙️ Зібрати та Провести в облік"; }
         }
 
-        // Видатки
         document.getElementById('form-vydatky').addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = { category: document.getElementById('v_cat').value, sum: parseFloat(document.getElementById('v_sum').value), comment: document.getElementById('v_com').value, order_id: "" };
@@ -470,7 +490,6 @@ def get_nomenclature():
 def api_save_specification(req: SpecificationRequest):
     rows_to_insert = []
     for comp in req.components:
-        # Колонки у Таблиці: Артикул боксу | Назва боксу | Артикул сировини | Назва сировини | Норма
         rows_to_insert.append([
             req.box_art, 
             req.box_name, 
