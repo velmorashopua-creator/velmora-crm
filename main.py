@@ -93,7 +93,7 @@ def base_layout(title, content, active_tab, extra_scripts=""):
         <meta charset="UTF-8">
         <title>Velmora CRM | {title}</title>
         <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; scroll-behavior: smooth; }}
             body {{ background-color: #FAF8F5; color: #4A4039; padding: 30px; height: 100vh; display: flex; flex-direction: column; }}
             .app-container {{ max-width: 1600px; width: 100%; margin: 0 auto; display: flex; gap: 30px; align-items: flex-start; flex: 1; overflow: hidden; }}
             .main-content {{ flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; overflow-y: auto; padding-right: 10px; }}
@@ -102,6 +102,11 @@ def base_layout(title, content, active_tab, extra_scripts=""):
             table {{ width: 100%; border-collapse: collapse; text-align: left; }}
             th {{ background: #F3EFEA; padding: 12px; font-size: 0.9rem; color: #5C4033; border-bottom: 2px solid #E8DCC4; }}
             td {{ padding: 6px 10px; border-bottom: 1px solid #EFECE6; }}
+            
+            /* Ефект підсвічування рядка при переході з воронки */
+            tr:target td {{ background-color: #FFF3CD !important; transition: background-color 0.5s ease; }}
+            tr:target {{ border-left: 4px solid #8C7262; }}
+            
             .form-control {{ width: 100%; padding: 8px; border: 1px solid #D9CEBF; border-radius: 6px; background: #FFF; }}
             .btn-submit {{ background: #8C7262; color: #FFF; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
             .btn-submit:hover {{ background: #6E574B; }}
@@ -156,7 +161,6 @@ def get_funnel_page():
             status = r[7] if len(r) > 7 else "Нове замовлення"
             ttn = r[8] if len(r) > 8 else ""
 
-            # Якщо старий статус (напр. "Новий"), перекидаємо у "Нове замовлення"
             if status not in FUNNEL_STAGES:
                 status = "Нове замовлення"
             
@@ -164,7 +168,9 @@ def get_funnel_page():
 
             card_html = f"""
             <div class="kanban-card" id="card-{original_row_num}" draggable="true" ondragstart="drag(event, {original_row_num}, '{ttn}')">
-                <h4>{name}</h4>
+                <a href="/orders#order-{original_row_num}" class="client-link" title="Відкрити картку замовлення">
+                    <h4>{name} 🔗</h4>
+                </a>
                 <div class="meta">📞 {phone}</div>
                 <div class="meta">📅 {date}</div>
                 <div class="product">{product}</div>
@@ -189,7 +195,7 @@ def get_funnel_page():
 
     content = f"""
     <h1>🎯 Воронка продажів</h1>
-    <p style="color: #8C7B70; margin-bottom: 15px; flex-shrink: 0;">Перетягуйте картки мишкою між етапами для автоматичної зміни статусу.</p>
+    <p style="color: #8C7B70; margin-bottom: 15px; flex-shrink: 0;">Перетягуйте картки мишкою. Натисніть на ім'я клієнта, щоб перейти до його замовлення в таблиці.</p>
     <div class="kanban-board">
         {columns_html}
     </div>
@@ -203,7 +209,9 @@ def get_funnel_page():
         .cards-container { padding: 10px; overflow-y: auto; flex: 1; min-height: 200px; }
         .kanban-card { background: #FFF; border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: grab; border: 1px solid #EFECE6; transition: 0.2s; }
         .kanban-card:active { cursor: grabbing; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: scale(0.98); }
-        .kanban-card h4 { font-size: 0.95rem; margin-bottom: 8px; color: #4A4039; }
+        .client-link { text-decoration: none; color: inherit; display: block; margin-bottom: 8px; }
+        .client-link h4 { font-size: 0.95rem; color: #5C4033; transition: color 0.2s; margin: 0; }
+        .client-link:hover h4 { color: #8C7262; text-decoration: underline; }
         .kanban-card .meta { font-size: 0.8rem; color: #8C7B70; margin-bottom: 4px; }
         .kanban-card .product { font-size: 0.8rem; color: #5C4033; font-weight: 600; padding: 4px 6px; background: #FAF8F5; border-radius: 4px; display: inline-block; margin-top: 5px; border: 1px solid #EFECE6; }
     </style>
@@ -222,16 +230,13 @@ def get_funnel_page():
             var rowId = ev.dataTransfer.getData("rowId");
             var ttn = ev.dataTransfer.getData("ttn");
             
-            // Знаходимо колонку, куди кинули картку
             var column = ev.target.closest('.kanban-column');
             if(!column) return;
             var container = column.querySelector('.cards-container');
             
-            // Переміщуємо візуально
             var card = document.getElementById("card-" + rowId);
             container.appendChild(card);
             
-            // Відправляємо запит на сервер для збереження
             try {
                 const response = await fetch('/update-order', {
                     method: 'POST',
@@ -240,7 +245,6 @@ def get_funnel_page():
                 });
                 
                 if(response.ok) {
-                    // Оновлюємо лічильники
                     setTimeout(() => window.location.reload(), 500); 
                 } else {
                     alert('Помилка оновлення статусу у Google Таблиці');
@@ -273,7 +277,8 @@ def get_orders_page():
 
             options = "".join([f"<option value='{s}' {'selected' if s == status else ''}>{s}</option>" for s in FUNNEL_STAGES])
             
-            orders_html += f"<tr><td>{date}</td><td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td><td>{product}</td><td><select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>{options}</select></td><td><input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'></td><td><button class='action-btn' onclick='updateOrder(this, {original_row_num})' style='background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;'>💾</button></td></tr>"
+            # Додано id='order-{original_row_num}' для підсвічування та якоря
+            orders_html += f"<tr id='order-{original_row_num}'><td>{date}</td><td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td><td>{product}</td><td><select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>{options}</select></td><td><input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'></td><td><button class='action-btn' onclick='updateOrder(this, {original_row_num})' style='background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;'>💾</button></td></tr>"
     else:
         orders_html = "<tr><td colspan='6' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
 
