@@ -159,6 +159,8 @@ def get_funnel_page():
             # Якщо старий статус (напр. "Новий"), перекидаємо у "Нове замовлення"
             if status not in FUNNEL_STAGES:
                 status = "Нове замовлення"
+            
+            ttn_block = f"<div class='meta' style='margin-top:5px; color:#A35D5D;'>ТТН: {ttn}</div>" if ttn else ""
 
             card_html = f"""
             <div class="kanban-card" id="card-{original_row_num}" draggable="true" ondragstart="drag(event, {original_row_num}, '{ttn}')">
@@ -166,7 +168,7 @@ def get_funnel_page():
                 <div class="meta">📞 {phone}</div>
                 <div class="meta">📅 {date}</div>
                 <div class="product">{product}</div>
-                {f"<div class="meta" style='margin-top:5px; color:#A35D5D;'>ТТН: {ttn}</div>" if ttn else ""}
+                {ttn_block}
             </div>
             """
             board_data[status].append(card_html)
@@ -238,7 +240,7 @@ def get_funnel_page():
                 });
                 
                 if(response.ok) {
-                    // Оновлюємо лічильники (опціонально, при перезавантаженні вони самі оновляться)
+                    // Оновлюємо лічильники
                     setTimeout(() => window.location.reload(), 500); 
                 } else {
                     alert('Помилка оновлення статусу у Google Таблиці');
