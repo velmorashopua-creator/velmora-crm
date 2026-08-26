@@ -150,7 +150,6 @@ def get_funnel_page():
     except:
         rows = []
 
-    # Групуємо замовлення за статусами
     board_data = {stage: [] for stage in FUNNEL_STAGES}
     
     if rows:
@@ -166,8 +165,9 @@ def get_funnel_page():
             
             ttn_block = f"<div class='meta' style='margin-top:5px; color:#A35D5D;'>ТТН: {ttn}</div>" if ttn else ""
 
+            # Використовуємо зворотні лапки ` для JS-функції drag, щоб уникнути конфліктів з апострофами
             card_html = f"""
-            <div class="kanban-card" id="card-{original_row_num}" draggable="true" ondragstart="drag(event, {original_row_num}, '{ttn}')">
+            <div class="kanban-card" id="card-{original_row_num}" draggable="true" ondragstart="drag(event, {original_row_num}, `{ttn}`)">
                 <a href="/orders#order-{original_row_num}" class="client-link" title="Відкрити картку замовлення">
                     <h4>{name} 🔗</h4>
                 </a>
@@ -179,13 +179,13 @@ def get_funnel_page():
             """
             board_data[status].append(card_html)
 
-    # Генеруємо HTML колонок Канбану
     columns_html = ""
     for stage in FUNNEL_STAGES:
         cards_html = "".join(board_data[stage])
         count = len(board_data[stage])
+        # Використовуємо зворотні лапки для JS-параметру `{stage}`
         columns_html += f"""
-        <div class="kanban-column" ondrop="drop(event, '{stage}')" ondragover="allowDrop(event)">
+        <div class="kanban-column" ondrop="drop(event, `{stage}`)" ondragover="allowDrop(event)">
             <div class="kanban-header">{stage} <span style="color:#8C7B70; font-weight:normal;">({count})</span></div>
             <div class="cards-container">
                 {cards_html}
@@ -275,10 +275,10 @@ def get_orders_page():
             if status not in FUNNEL_STAGES: status = "Нове замовлення"
             ttn = r[8] if len(r) > 8 else ""
 
-            options = "".join([f"<option value='{s}' {'selected' if s == status else ''}>{s}</option>" for s in FUNNEL_STAGES])
+            # Використовуємо подвійні лапки навколо {s}, щоб апостроф всередині статусу не ламав HTML
+            options = "".join([f'<option value="{s}" {"selected" if s == status else ""}>{s}</option>' for s in FUNNEL_STAGES])
             
-            # Додано id='order-{original_row_num}' для підсвічування та якоря
-            orders_html += f"<tr id='order-{original_row_num}'><td>{date}</td><td><b>{name}</b><br><span style='font-size:0.8rem; color:#8C7B70;'>{phone}</span></td><td>{product}</td><td><select class='status-select' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;'>{options}</select></td><td><input type='text' class='ttn-input' value='{ttn}' placeholder='Номер ТТН' style='padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;'></td><td><button class='action-btn' onclick='updateOrder(this, {original_row_num})' style='background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;'>💾</button></td></tr>"
+            orders_html += f'<tr id="order-{original_row_num}"><td>{date}</td><td><b>{name}</b><br><span style="font-size:0.8rem; color:#8C7B70;">{phone}</span></td><td>{product}</td><td><select class="status-select" style="padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; background: #FAF8F5;">{options}</select></td><td><input type="text" class="ttn-input" value="{ttn}" placeholder="Номер ТТН" style="padding: 6px; border-radius: 6px; border: 1px solid #D9CEBF; width: 130px; background: #FAF8F5;"></td><td><button class="action-btn" onclick="updateOrder(this, {original_row_num})" style="background: #E8DCC4; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">💾</button></td></tr>'
     else:
         orders_html = "<tr><td colspan='6' style='text-align: center; color: #8C7B70;'>Немає замовлень</td></tr>"
 
